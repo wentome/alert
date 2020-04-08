@@ -2,17 +2,20 @@
 #define ALERT_H
 #include <QCoreApplication>
 #include <QMainWindow>
+#include <QTimer>
 #include <QMediaPlayer>
 #include <QMediaPlaylist>
 #include <QWidget>
 #include <QVBoxLayout>
 #include <QComboBox>
 #include <QPushButton>
+#include <QCheckBox>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QtMqtt/QMqttClient>
 #include <QtMqtt/QMqttSubscription>
+
 
 class Alert : public QMainWindow
 {
@@ -33,6 +36,8 @@ private:
     QLabel *m_portLable;
     QLabel *m_pushTopicLable;
     QLabel *m_subTopicLable;
+    QLabel *m_autoReconnectLable;
+    QLabel *m_autoResubLable;
 
     QLineEdit *m_hostEdit;
     QLineEdit *m_portEdit;
@@ -47,18 +52,21 @@ private:
     QPushButton *m_connectButton;
     QPushButton *m_pushButton;
     QPushButton *m_subButton;
+    QCheckBox *m_autoReconnectCheckBox;
+    QCheckBox *m_autoResubCheckBox;
 
     QMediaPlayer *player;
     QMediaPlaylist *playList;
     QMqttClient *m_client;
     QMqttSubscription *m_subscription;
+    QTimer * reconnectTimer;
 private slots:
     void play();
     void stop();
-    void start();
+    void connectBroker();
+    void reconnectBroker();
     void push();
     void sub();
-    void getPing();
     void clientStateChange(QMqttClient::ClientState state);
     void getMessage(const QByteArray &message, const QMqttTopicName &topic);
     void updateStatus(QMqttSubscription::SubscriptionState state);

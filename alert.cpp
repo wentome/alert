@@ -6,6 +6,9 @@
 Alert::Alert(QWidget *parent)
     : QMainWindow(parent)
 {
+    reconnectTimer =new QTimer;
+    connect(reconnectTimer, SIGNAL(timeout()), this, SLOT(reconnectBroker()));
+    reconnectTimer->start(3000);
     QWidget *centraWidget =new QWidget;
     mainLayout=new QVBoxLayout();
     playLayout =new QHBoxLayout();
@@ -20,11 +23,13 @@ Alert::Alert(QWidget *parent)
     m_portLable= new QLabel("port:");
     m_pushTopicLable= new QLabel("topic:");
     m_subTopicLable= new QLabel("topic:");
+    m_autoReconnectLable= new QLabel("auto");
+    m_autoResubLable= new QLabel("auto");
 
     m_hostEdit= new QLineEdit("39.99.185.210");
     m_portEdit= new QLineEdit("1883");
-    m_pushTopicEdit= new QLineEdit("test/01");
-    m_subTopicEdit= new QLineEdit("test/01");
+    m_pushTopicEdit= new QLineEdit("alert/01");
+    m_subTopicEdit= new QLineEdit("alert/+");
     m_pushMsgEdit= new QLineEdit("hello");
     m_subMsgPlainTextEdit= new QPlainTextEdit();
 
@@ -34,6 +39,10 @@ Alert::Alert(QWidget *parent)
     m_pushButton = new QPushButton(tr("PUSH"));
     m_pushButton->setStyleSheet("background: #6666FF");
     m_subButton = new QPushButton(tr("SUB"));
+    m_autoReconnectCheckBox =new QCheckBox();
+    m_autoReconnectCheckBox->setChecked(true);
+    m_autoResubCheckBox =new QCheckBox();
+    m_autoResubCheckBox->setChecked(true);
 
     playLayout->addWidget(m_deviceBox);
     playLayout->addWidget(m_playButton);
@@ -43,6 +52,8 @@ Alert::Alert(QWidget *parent)
     connectLayout->addWidget(m_hostEdit);
     connectLayout->addWidget(m_portLable);
     connectLayout->addWidget(m_portEdit);
+    connectLayout->addWidget(m_autoReconnectLable);
+    connectLayout->addWidget(m_autoReconnectCheckBox);
     connectLayout->addWidget(m_connectButton);
 
     pushLayout->addWidget(m_pushTopicLable);
@@ -52,6 +63,8 @@ Alert::Alert(QWidget *parent)
 
     subLayout->addWidget(m_subTopicLable);
     subLayout->addWidget(m_subTopicEdit);
+    subLayout->addWidget(m_autoResubLable);
+    subLayout->addWidget(m_autoResubCheckBox);
     subLayout->addWidget(m_subButton);
 
     mainLayout->addLayout(playLayout);
@@ -72,15 +85,15 @@ Alert::Alert(QWidget *parent)
     player->setPlaylist(playList);
     player->setVolume(100);
     m_client = new QMqttClient(this);
-
+    m_client->setKeepAlive(5);
     connect(m_playButton, SIGNAL(clicked()),this, SLOT(play()));
     connect(m_stopButton, SIGNAL(clicked()),this, SLOT(stop()));
-    connect(m_connectButton, SIGNAL(clicked()),this, SLOT(start()));
+    connect(m_connectButton, SIGNAL(clicked()),this, SLOT(connectBroker()));
     connect(m_pushButton, SIGNAL(clicked()), SLOT(push()));
     connect(m_subButton, SIGNAL(clicked()), SLOT(sub()));
     connect(m_client, &QMqttClient::stateChanged, this, &Alert::clientStateChange);
     connect(m_client, &QMqttClient::messageReceived, this, &Alert::getMessage);
-    connect(m_client, &QMqttClient::pingResponseReceived, this, &Alert::getPing);
+
 }
 
 void Alert::getMessage(const QByteArray &message, const QMqttTopicName &topic){
@@ -95,10 +108,8 @@ void Alert::getMessage(const QByteArray &message, const QMqttTopicName &topic){
         player->play();
     }
 }
-void Alert::getPing(){
-    m_subMsgPlainTextEdit->insertPlainText("ping");
 
-}
+
 void Alert::play()
 {
     m_subMsgPlainTextEdit->insertPlainText("play");
@@ -108,11 +119,52 @@ void Alert::stop()
 {
     player->stop();
 }
-void Alert::start()
+
+void Alert::connectBroker()
 {
     m_client->setHostname(m_hostEdit->text());
     m_client->setPort(m_portEdit->text().toInt());
     m_client->connectToHost();
+}
+void Alert::reconnectBroker(){
+   QMqttClient::ClientState connectState= m_client->state();
+   switch (connectState) {
+   case QMqttClient::ClientState::Disconnected:
+       m_client->setHostname(m_hostEdit->text());
+       m_client->setPort(m_portEdit->text().toInt());
+       m_client->connectToHost();
+       break;
+   case QMqttClient::ClientState:: Connecting:
+       break;
+   case QMqttClient::ClientState:: Connected:
+       break;
+   }
+   if (m_subscription !=nullptr){
+       QMqttSubscription::SubscriptionState subState =m_subscription->state();
+       switch (subState) {
+       case QMqttSubscription::Unsubscribed:
+           m_subButton->setStyleSheet("background: #DDDDDD");
+           m_subButton->setText("SUB");
+           break;
+       case QMqttSubscription::SubscriptionPending:
+           m_subButton->setStyleSheet("background: #FFFF00");
+           m_subButton->setText("Pending");
+           break;
+       case QMqttSubscription::Subscribed:
+           m_subButton->setStyleSheet("background: #33FF33");
+           m_subButton->setText("SUBED");
+           break;
+       case QMqttSubscription::Error:
+           m_subButton->setStyleSheet("background: #FFFF00");
+           m_subButton->setText("Error");
+           break;
+    //   default:
+    //       m_subButton->setStyleSheet("background: #FFFF00");
+    //       m_subButton->setText("--Unknown--");
+    //       break;
+       }
+   }
+
 
 }
 void Alert::push()
@@ -123,6 +175,7 @@ void Alert::push()
 void Alert::sub()
 {
     m_subscription=m_client->subscribe(m_subTopicEdit->text());
+
     connect(m_subscription, &QMqttSubscription::stateChanged, this, &Alert::updateStatus);
 }
 
@@ -131,6 +184,9 @@ void Alert::clientStateChange(QMqttClient::ClientState state){
     case QMqttClient::ClientState::Disconnected:
         m_connectButton->setStyleSheet("background: #DDDDDD");
         m_connectButton->setText("Connect");
+        if (m_subscription != nullptr){
+            m_subscription->unsubscribe();
+        }
         break;
     case QMqttClient::ClientState:: Connecting:
         m_connectButton->setText("Connect...");
@@ -138,6 +194,11 @@ void Alert::clientStateChange(QMqttClient::ClientState state){
     case QMqttClient::ClientState:: Connected:
         m_connectButton->setStyleSheet("background: #33FF33");
         m_connectButton->setText("Connected");
+
+        if (m_subscription != nullptr){
+            m_subscription=m_client->subscribe(m_subTopicEdit->text());
+            connect(m_subscription, &QMqttSubscription::stateChanged, this, &Alert::updateStatus);
+        }
         break;
     }
 
